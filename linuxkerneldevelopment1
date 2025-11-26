@@ -1,0 +1,129 @@
+Linux FS Hierarchy
+Root Directory
+/bin
+/sbin
+/etc configuration files
+/home
+/root
+/usr unix system resources non essential command binaries libraries documentation
+/var contains files whose content is expected to change frequently or grow as log files mail queues and web server files
+/tmp temporary files from the system and users, contents are usually deleted upon reboot
+/dev special files that represent physical hardware devices
+/proc
+/sys vfs to view and configure system hardware
+/opt  large self contained third party software
+/mnt mounting storage devices like usb drives or network shares
+/media automatically mounting removable media like cd-ROMs or digital cameras
+
+cat is a prgram defined in bin folder, when executing cat on power_suply file, the file will call a wrapper of open and read call a syscall which asks the battery returns an integer
+and returns it to stdout 
+Maybe cat is a specific constant command like a wrapper of open and read and fsys infrastructure recognizes it as a specific kernel function which talks to the hardware or reads 
+an internal kernel variable to get the current capacity percentage. 
+Battery Chip -> Kernel Buffer -> Cat Program(read syscall fd3) -> Stdout(write syscall fd3) -> Terminal (stdout fd1)
+
+Syscalls are the low level functions the kernel provides to interact with the system and core utilities are user-space programs built on top of these syscalls. 
+
+
+
+
+
+The linux kernel build system is one of the most sophisticated uses of make. You use a decentralized system where: the top level Makefile manages the overall build configuration and targets. kbuild is a complex set of scripts and Makefiles that handle
+the details of building modules traversing directories and linking. 
+e entry all: app in a Makefile is a rule that defines the default goal when you run the make command without any arguments.
+n this context, all: app simply means: "To build everything, just build the program named app."
+Default Action: It ensures that running a simple make command builds your final executable (app).
+
+Phony Target: all is typically declared as a phony target using the .PHONY directive (e.g., .PHONY: all). This tells make that all is not an actual file to be created. This is important because if a file named all accidentally existed in the directory, make might incorrectly decide that the target is already up-to-date and skip the build.
+
+A typical program might have tens or hundreds of files: main.c, networking.c, display.c, utils.c, etc.
+
+The gcc compiler must be run on each of these files to create an object file (.o) first, and then all the object files must be linked together 
+to form the final executable.
+
+You'd need a long series of commands:
+
+gcc -c main.c -o main.o
+gcc -c networking.c -o networking.o
+gcc -c display.c -o display.o
+gcc main.o networking.o display.o -o app
+... and so on for potentially hundreds of files.
+
+Makefile Approach (Structured):
+The Makefile organizes this process into clear, 
+manageable rules, defining dependencies automatically. This is much easier to manage and understand for large codebases.
+ake looks at the timestamps of the files:
+
+Rule: networking.o depends on networking.c.
+
+Action: If networking.c has been modified more recently than networking.o, make recompiles only networking.o.
+
+If networking.c has not changed, make skips the compilation and uses the existing networking.o file.
+
+For real projects, you often need to define specific settings for the compiler:
+
+Compiler Flags: Optimizations (-O2), warnings (-Wall), standard definitions (-std=c99).
+
+External Libraries: Linking in external code (like math functions using -lm) or specific library paths (-L/usr/lib/mylib).
+
+Architecture/Kernel Configuration: In the Linux kernel, the Makefile handles the complex logic of compiling different code for different hardware architectures (ARM, x86) based on the user's .config file.
+
+The Makefile centralizes these complex compiler options into variables (like CFLAGS or LDFLAGS), keeping the actual compilation commands clean and readable.
+
+
+
+The -O flag instructs the compiler to apply various optimization algorithms to the source code.
+
+The level 2 (-O2) is a common choice because it enables most optimizations that don't significantly increase compilation time or code size, providing a good balance between speed and build time.
+
+How it works: The compiler might rearrange instructions, eliminate redundant code, calculate constants at compile time (instead of run time), and perform complex loop transformations to produce more efficient machine code.
+
+
+
+
+
+Why? To catch potential bugs, logical errors, or suspicious constructs that might not be fatal errors but are highly problematic.
+Wall stands for "All Warnings". It is a crucial flag for quality assurance.
+It tells the compiler to report virtually every warning that is generally considered helpful.
+Examples of warnings it catches:
+Using an uninitialized variable.
+Forgetting a return statement in a non-void function.
+Mismatched format specifiers in printf or scanf.
+Using the result of an assignment as a conditional (e.g., if (x = 1) instead of if (x == 1)).
+Best Practice: In professional and kernel development, warnings are often treated as errors, forcing developers to fix the underlying issue before the code is accepted.
+
+
+
+
+
+
+Boot Code (head.S)-D__ASSEMBLY__Assembly files (.S) cannot be processed by the regular C compiler. This flag defines an assembly-specific macro and often uses a special compiler stage before the assembler runs.x86 vs. ARM-m32 or -m64To ensure the code generates a 32-bit or 64-bit binary, which affects instruction sets, register usage, and memory addressing.Optimizations-Os (Optimize for Size)Core boot code or embedded system code often needs to be as small as possible to fit in limited memory or boot sectors, overriding the kernel's default -O2 or -O3.
+
+
+
+
+
+
+
+
+
+Stack smashing protocols" (or more commonly, Stack Smashing Protection (SSP)) refer to compiler and operating system security features designed to detect and prevent a class of attacks called stack buffer overflows, or "stack smashing."
+
+A successful stack smashing attack allows a malicious user to overwrite critical data on a program's call stack, specifically the return address, to redirect the program's execution flow to their own injected code.
+
+The primary method used for SSP is the Stack Canary
+
+
+
+
+
+A stack canary is a random, secret value placed on the stack between a local buffer (the vulnerable variable) and the function saved control data, like the return address.
+Function Entry (Prologue): When a function starts, the compiler inserts code to push a random "canary" value onto the stack.
+During Execution: Local variables, including buffers, are allocated after the canary.
+Buffer Overflow: If an attacker attempts to overflow a local buffer to overwrite the return address, they must overwrite the canary first.
+Function Exit (Epilogue): Before the function executes the instruction to return (which uses the saved return address), the compiler inserts code to check the canary's value.
+If the canary is intact, the function returns normally.
+If the canary has been changed (smashed), the program detects the overflow, prints an error message (like *** stack smashing detected ***), and immediately terminates the process to prevent the attacker's code from running.
+The term "canary" comes from the historical use of canaries in coal mines—if the canary died, it signaled danger before the miners were affected.
+
+
+In C development, you enable SSP using specific compiler flags, such as those provided by GCC:Compiler FlagScope of Protection-fstack-protectorProtects only functions that contain buffers larger than 8 bytes or use dynamic memory allocation (alloca).-fstack-protector-strongIncludes protection for functions with local arrays or references to the local frame address. This is often the default setting for a good balance of security and performance.-fstack-protector-allInstruments every function with a canary, providing the highest security but with the largest potential performance hit.
