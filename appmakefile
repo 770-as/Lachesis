@@ -1,0 +1,21 @@
+# Define a variable for the C compiler
+CC = gcc
+# Define a variable for compiler flags (e.g., -Wall for all warnings)
+CFLAGS = -Wall
+
+# 1. 'all' is a common phony target to build the main program
+all: app
+
+# 2. Rule to build the executable 'app' from 'main.o'
+app: main.o
+    $(CC) -o app main.o
+
+# 3. Rule to build the object file 'main.o' from 'main.c'
+main.o: main.c
+    $(CC) $(CFLAGS) -c main.c
+
+# 4. Phony target to clean up generated files
+clean:
+    rm -f app main.o
+
+.PHONY: all clean
