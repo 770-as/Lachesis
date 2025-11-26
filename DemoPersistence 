@@ -1,0 +1,52 @@
+#include <windows.h>
+#include <iostream>
+
+int main() {
+    std::cout << "Attempting to create registry persistence entry..." << std::endl;
+
+    HKEY hkey;
+    // Path to the Run key for the current user
+    const char* runKeyPath = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    
+    // The name of the new entry (the program name)
+    const char* valueName = "DemoPersistenceApp"; 
+    
+    // The command to run (path to the executable)
+    // IMPORTANT: In your real file, this would be the actual path to DemoPersistence.exe
+    const char* command = "C:\\Path\\To\\DemoPersistence.exe"; 
+
+    // Open the Run key
+    LONG result = RegOpenKeyExA(
+        HKEY_CURRENT_USER, 
+        runKeyPath, 
+        0, 
+        KEY_SET_VALUE, 
+        &hkey
+    );
+
+    if (result == ERROR_SUCCESS) {
+        // Write the new value to the key
+        result = RegSetValueExA(
+            hkey, 
+            valueName, 
+            0, 
+            REG_SZ, 
+            (const BYTE*)command, 
+            strlen(command) + 1 
+        );
+
+        if (result == ERROR_SUCCESS) {
+            std::cout << "Successfully wrote registry key." << std::endl;
+        } else {
+            std::cout << "Error writing registry value. Error code: " << result << std::endl;
+        }
+
+        RegCloseKey(hkey);
+    } else {
+        std::cout << "Error opening registry key. Error code: " << result << std::endl;
+    }
+
+    // A small pause so you can observe the console output before it closes
+    Sleep(5000); 
+    return 0;
+}
