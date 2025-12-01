@@ -1,0 +1,214 @@
+
+#include <linux/module.h>      // Core header for kernel modules
+#include <linux/init.h>        // For __init and __exit macros
+#include <linux/fs.h>          // For file_operations and device registration
+#include <linux/cdev.h>        // For struct cdev
+#include <linux/uaccess.h>     // For copy_to_user/copy_from_user
+#include <linux/io.h>          // For ioremap, iounmap, iowrite/ioread
+#include <linux/interrupt.h>   // For request_irq, free_irq
+
+// --- 1. Configuration ---
+#define DEVICE_NAME "simple_gpio"
+#define MAX_DEV_COUNT 1
+
+// --- Simulated Hardware Registers ---
+// These addresses are typically defined in device datasheets.
+// We use a safe, placeholder address range here.
+#define GPIO_BASE_ADDR   0x3F200000 
+#define GPIO_REG_SIZE    0x1000 // 4KB of register space
+
+// Simulated Register Offsets (32-bit registers)
+#define CONTROL_REG_OFFSET 0x04 
+#define DATA_REG_OFFSET    0x08
+
+// Simulated IRQ Line (Change this number to match the actual hardware IRQ)
+#define GPIO_IRQ_NUMBER    19 
+
+// --- 2. Global State Variables ---
+static dev_t device_number;           // Major/Minor device number
+static struct cdev gpio_cdev;         // Character device structure
+static void __iomem *gpio_base;       // Pointer to the memory-mapped I/O registers
+
+// --- Helper Macro for logging ---
+#define KERNEL_LOG(fmt, ...) pr_info("[%s] " fmt, DEVICE_NAME, ##__VA_ARGS__)
+
+// --- 3. Interrupt Handling ---
+/**
+ * @brief Handles the simulated hardware interrupt.
+ * * This function is called by the kernel's IRQ core when the GPIO_IRQ_NUMBER is triggered.
+ * * @param irq The IRQ number (should match GPIO_IRQ_NUMBER).
+ * @param dev_id A unique ID pointer provided during request_irq (used to share IRQs).
+ * @return Returns IRQ_HANDLED to indicate the interrupt was processed.
+ */
+static irqreturn_t gpio_irq_handler(int irq, void *dev_id) {
+    // In a real device, you would read the status register here to confirm
+    // the interrupt source and clear the interrupt flag in the hardware.
+    
+    // Read the current data register value (simulated event data)
+    u32 data = ioread32(gpio_base + DATA_REG_OFFSET); 
+
+    KERNEL_LOG("Interrupt received on IRQ %d. Device ID: %p. Data: 0x%X", irq, dev_id, data);
+
+    // Perform necessary action, like waking up a waiting process (wait_event_interruptible)
+    // or queuing a work item.
+
+    return IRQ_HANDLED; // Signal that we handled the interrupt
+}
+// 
+
+// --- 4. File Operations ---
+
+static int gpio_open(struct inode *inode, struct file *file) {
+    KERNEL_LOG("Device opened.");
+    // No complex setup needed; the register mapping is already done in __init.
+    return 0; 
+}
+
+static int gpio_release(struct inode *inode, struct file *file) {
+    KERNEL_LOG("Device closed.");
+    return 0; 
+}
+
+/**
+ * @brief Reads data from the simulated Data Register (DATA_REG_OFFSET).
+ * * @note This driver only reads one 32-bit register value per call.
+ */
+static ssize_t gpio_read(struct file *file, char __user *buf, size_t count, loff_t *f_pos) {
+    u32 reg_value;
+    int bytes_to_copy = sizeof(u32); // Read 4 bytes (32 bits)
+
+    if (count < bytes_to_copy) {
+        KERNEL_LOG("Read request size (%zu) too small for 32-bit register.", count);
+        return -EINVAL;
+    }
+
+    // 1. Read the 32-bit value from the mapped I/O register address
+    // This is equivalent to `*(volatile u32 *)(gpio_base + DATA_REG_OFFSET)`
+    reg_value = ioread32(gpio_base + DATA_REG_OFFSET);
+
+    // 2. Copy the 4-byte value to the user's buffer
+    if (copy_to_user(buf, &reg_value, bytes_to_copy) != 0) {
+        KERNEL_LOG("Failed to copy data to user space.");
+        return -EFAULT;
+    }
+
+    KERNEL_LOG("Read 0x%X from DATA_REG.", reg_value);
+    return bytes_to_copy;
+}
+
+/**
+ * @brief Writes data to the simulated Control Register (CONTROL_REG_OFFSET).
+ * * @note This driver only accepts one 32-bit value per call for the control register.
+ */
+static ssize_t gpio_write(struct file *file, const char __user *buf, size_t count, loff_t *f_pos) {
+    u32 reg_value;
+    int bytes_to_copy = sizeof(u32); 
+    
+    if (count < bytes_to_copy) {
+        KERNEL_LOG("Write request size (%zu) too small for 32-bit register.", count);
+        return -EINVAL;
+    }
+
+    // 1. Copy the 4-byte value from the user's buffer
+    if (copy_from_user(&reg_value, buf, bytes_to_copy) != 0) {
+        KERNEL_LOG("Failed to copy data from user space.");
+        return -EFAULT;
+    }
+
+    // 2. Write the 32-bit value to the mapped I/O register address
+    // This is equivalent to `*(volatile u32 *)(gpio_base + CONTROL_REG_OFFSET) = reg_value;`
+    iowrite32(reg_value, gpio_base + CONTROL_REG_OFFSET);
+
+    KERNEL_LOG("Wrote 0x%X to CONTROL_REG.", reg_value);
+    return bytes_to_copy;
+}
+
+// --- 5. File Operations Dispatch Table ---
+static const struct file_operations gpio_fops = {
+    .owner   = THIS_MODULE,
+    .open    = gpio_open,
+    .release = gpio_release,
+    .read    = gpio_read,
+    .write   = gpio_write,
+};
+
+// --- 6. Module Initialization (Loads the driver) ---
+static int __init virtual_gpio_init(void) {
+    int ret;
+    
+    // Part A: Character Device Registration
+    
+    // 1. Allocate a device number pair
+    ret = alloc_chrdev_region(&device_number, 0, MAX_DEV_COUNT, DEVICE_NAME);
+    if (ret < 0) {
+        pr_err("Failed to allocate character device region\n");
+        return ret;
+    }
+    KERNEL_LOG("Allocated device number: Major=%d Minor=%d", MAJOR(device_number), MINOR(device_number));
+
+    // 2. Initialize the cdev structure and link it to our file operations
+    cdev_init(&gpio_cdev, &gpio_fops);
+    gpio_cdev.owner = THIS_MODULE;
+
+    // 3. Add the device to the system
+    ret = cdev_add(&gpio_cdev, device_number, MAX_DEV_COUNT);
+    if (ret < 0) {
+        pr_err("Failed to add cdev\n");
+        unregister_chrdev_region(device_number, MAX_DEV_COUNT);
+        return ret;
+    }
+    
+    // Part B: Hardware Initialization (I/O Memory Mapping & IRQ)
+    
+    // 4. Map physical I/O address range to virtual kernel address
+    gpio_base = ioremap(GPIO_BASE_ADDR, GPIO_REG_SIZE);
+    if (!gpio_base) {
+        pr_err("Failed to ioremap GPIO register space.\n");
+        cdev_del(&gpio_cdev);
+        unregister_chrdev_region(device_number, MAX_DEV_COUNT);
+        return -ENOMEM;
+    }
+    KERNEL_LOG("Mapped GPIO registers from %p to %p.", (void*)GPIO_BASE_ADDR, gpio_base);
+    
+    // 5. Request the Interrupt Line
+    // The device ID (last argument) is typically the cdev address for sharing IRQs
+    ret = request_irq(GPIO_IRQ_NUMBER, gpio_irq_handler, IRQF_SHARED, DEVICE_NAME, &gpio_cdev);
+    if (ret) {
+        pr_err("Failed to request IRQ %d. Error: %d\n", GPIO_IRQ_NUMBER, ret);
+        iounmap(gpio_base);
+        cdev_del(&gpio_cdev);
+        unregister_chrdev_region(device_number, MAX_DEV_COUNT);
+        return ret;
+    }
+    KERNEL_LOG("Successfully requested and registered IRQ %d.", GPIO_IRQ_NUMBER);
+    
+    KERNEL_LOG("Driver loaded successfully. Hardware interface ready.");
+    return 0;
+}
+
+// --- 7. Module Exit (Unloads the driver) ---
+static void __exit virtual_gpio_exit(void) {
+    // 1. Release the IRQ line
+    free_irq(GPIO_IRQ_NUMBER, &gpio_cdev);
+    
+    // 2. Unmap the I/O memory
+    if (gpio_base) {
+        iounmap(gpio_base);
+    }
+    
+    // 3. Remove the device from the system
+    cdev_del(&gpio_cdev);
+    
+    // 4. Release the major/minor number reservation
+    unregister_chrdev_region(device_number, MAX_DEV_COUNT);
+    
+    KERNEL_LOG("Driver unloaded. Resources released.");
+}
+
+// --- Module Linkage Macros ---
+module_init(virtual_gpio_init);
+module_exit(virtual_gpio_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Gemini LLM");
+MODULE_DESCRIPTION("A simple character device driver simulating a GPIO controller with IRQ and register access.");
