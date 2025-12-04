@@ -56,6 +56,8 @@ static ssize_t polling_rate_ms_store(struct device *dev,
     int ret;
     // 1. Parse the input string into an unsigned integer
     ret = kstrtouint(buf, 10, &value);
+/*This is the safe way to convert the input string (buf) into a numerical type (unsigned int). The function kstrtouint ensures the input is clean, handles base 10 (10), 
+and returns an error code (ret) if the conversion fails*/
     if (ret)
         return ret;
     // 2. Validate the input value against typical limits
@@ -71,12 +73,10 @@ static ssize_t polling_rate_ms_store(struct device *dev,
     // to configure the device's internal timer to poll at the new rate.
     // E.g., driver_configure_timer(priv->hardware_regs, value);
     pr_info("Input polling rate set to %u ms.\n", value);
-
-
     // 5. Return the number of bytes consumed
     return count;
 }
-
+/*The store function must return the number of bytes successfully processed from the input buffer, which is usually count.*/
 // ====================================================================
 // SECTION 3: Attribute Definition and Linkage
 // ====================================================================
@@ -105,7 +105,8 @@ static int my_input_probe(struct input_dev *input_device)
 
     // 1. *** EXPOSE THE ATTRIBUTE ***
     // Attach the attribute to the device's Kobject (input_device->dev).
-    ret = device_create_file(&input_device->dev, &dev_attr_polling_rate_ms);
+    ret = device_create_file(&input_device->dev, &dev_attr_polling_rate_ms);//This is the function call that actually creates the file /sys/devices/.../polling_rate_ms in the kernel's internal representation of the file system.
+    //&input_device->dev: The pointer to the generic kernel device structure (the directory name in /sys).&dev_attr_polling_rate_ms: The structure defined in Section 3 that tells the kernel which functions to call when the file is read or written.
     if (ret) {
         pr_err("Failed to create sysfs attribute 'polling_rate_ms'.\n");
         kfree(priv);
