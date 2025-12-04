@@ -1,0 +1,136 @@
+// ====================================================================
+// SECTION 1: Device Structure and Global Variables
+// ====================================================================
+
+#include <linux/module.h>
+#include <linux/device.h>
+#include <linux/kernel.h>
+#include <linux/stat.h>
+#include <linux/slab.h>
+#include <linux/input.h> // Common input device header
+
+// Assume this is the device structure embedded within the input subsystem
+struct my_input_device {
+    struct input_dev *input; // Pointer to the underlying kernel input structure
+    // --- The variable we want to expose to user space via Sysfs ---
+    unsigned int polling_rate_ms; // Rate in milliseconds (e.g., 8ms)
+    // -----------------------------------------------------------------
+    // ... other driver-specific data ...
+};
+
+// Helper macro to get the pointer to our custom device structure
+// from the kernel's generic device structure (assuming the input device Kobject is used)
+#define to_my_input_device(d) container_of(d, struct my_input_device, input->dev)
+
+// ====================================================================
+// SECTION 2: Sysfs Attribute Implementation (show/store functions)
+// ====================================================================
+
+/**
+ * polling_rate_ms_show - Read the current polling rate in milliseconds.
+ * This is executed when user space runs 'cat /sys/.../polling_rate_ms'.
+ */
+static ssize_t polling_rate_ms_show(struct device *dev,
+                                    struct device_attribute *attr,
+                                    char *buf)
+{
+    // 1. Retrieve the driver's private data structure
+    struct my_input_device *priv = to_my_input_device(dev);
+    unsigned int rate;
+
+    // 2. Read the internal state variable
+    rate = priv->polling_rate_ms;
+
+    // 3. Format the value as a string and write it to the buffer.
+    return sprintf(buf, "%u\n", rate);
+}
+
+/**
+ * polling_rate_ms_store - Write a new polling rate.
+ * This is executed when user space runs 'echo <rate> > /sys/.../polling_rate_ms'.
+ */
+static ssize_t polling_rate_ms_store(struct device *dev,
+                                     struct device_attribute *attr,
+                                     const char *buf, size_t count)
+{
+    struct my_input_device *priv = to_my_input_device(dev);
+    unsigned int value;
+    int ret;
+
+    // 1. Parse the input string into an unsigned integer
+    ret = kstrtouint(buf, 10, &value);
+    if (ret)
+        return ret;
+
+    // 2. Validate the input value against typical limits
+    // Example: Minimum rate of 1ms, maximum rate of 100ms
+    if (value < 1 || value > 100) {
+        pr_err("Polling rate %u ms is out of valid range (1-100 ms).\n", value);
+        return -EINVAL; // Invalid argument error
+    }
+
+    // 3. Update the internal state
+    priv->polling_rate_ms = value;
+
+    // 4. *** CRITICAL STEP: Interact with Hardware ***
+    // This function would call the specific hardware register write
+    // to configure the device's internal timer to poll at the new rate.
+    // E.g., driver_configure_timer(priv->hardware_regs, value);
+    pr_info("Input polling rate set to %u ms.\n", value);
+
+
+    // 5. Return the number of bytes consumed
+    return count;
+}
+
+// ====================================================================
+// SECTION 3: Attribute Definition and Linkage
+// ====================================================================
+
+// Define the Sysfs attribute structure:
+// This macro creates 'dev_attr_polling_rate_ms' and links it to the show/store functions.
+static DEVICE_ATTR_RW(polling_rate_ms);
+
+// ====================================================================
+// SECTION 4: Driver Initialization and Cleanup
+// ====================================================================
+
+// --- Simulation of the probe function ---
+static int my_input_probe(struct input_dev *input_device)
+{
+    struct my_input_device *priv;
+    int ret;
+
+    // Allocation and setup...
+    priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+    if (!priv) return -ENOMEM;
+
+    priv->input = input_device;
+    // Set a default polling rate
+    priv->polling_rate_ms = 8;
+
+    // 1. *** EXPOSE THE ATTRIBUTE ***
+    // Attach the attribute to the device's Kobject (input_device->dev).
+    ret = device_create_file(&input_device->dev, &dev_attr_polling_rate_ms);
+    if (ret) {
+        pr_err("Failed to create sysfs attribute 'polling_rate_ms'.\n");
+        kfree(priv);
+        return ret;
+    }
+
+    pr_info("Sysfs attribute /sys/.../polling_rate_ms created successfully.\n");
+    return 0;
+}
+
+// --- Simulation of the remove function ---
+static void my_input_remove(struct input_dev *input_device)
+{
+    // The input_device struct needs to be reverse-mapped to get 'priv' in a real driver.
+    // We only need the input_device->dev pointer for cleanup here.
+
+    // 1. *** REMOVE THE ATTRIBUTE ***
+    device_remove_file(&input_device->dev, &dev_attr_polling_rate_ms);
+
+    pr_info("Sysfs attribute removed.\n");
+    // kfree(priv) would happen here after getting the pointer back.
+}
