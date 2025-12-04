@@ -1,0 +1,166 @@
+// ====================================================================
+// SECTION 1: Device Structure and Global Variables
+// ====================================================================
+
+#include <linux/module.h>
+#include <linux/device.h>
+#include <linux/kernel.h>
+#include <linux/stat.h>
+#include <linux/slab.h> // For kmalloc/kfree
+
+// Define the internal structure for our PCIe device driver.
+// This structure holds the state of the hardware.
+struct my_pcie_device {
+    struct pci_dev *pdev; // Pointer to the underlying PCI device structure
+    // --- The variable we want to expose to user space via Sysfs ---
+    int power_feature_enabled; // 1 = enabled, 0 = disabled
+    // -----------------------------------------------------------------
+    // ... other driver-specific data ...
+};
+
+// ====================================================================
+// SECTION 2: Sysfs Attribute Implementation (show/store functions)
+// ====================================================================
+
+// Helper macro to get the pointer to our custom device structure
+// from the kernel's generic device structure.
+#define to_my_pcie_device(d) container_of(d, struct my_pcie_device, pdev->dev)
+
+/**
+ * power_feature_enabled_show - Read the current state of the feature.
+ * This is executed when user space runs 'cat /sys/.../power_feature_enabled'.
+ *
+ * @dev: The generic device structure (pdev->dev in our case).
+ * @attr: The specific attribute being accessed.
+ * @buf: The buffer to write the output string to.
+ *
+ * Returns: The number of bytes written to the buffer.
+ */
+static ssize_t power_feature_enabled_show(struct device *dev,
+                                          struct device_attribute *attr,
+                                          char *buf)
+{
+    // 1. Get the device's custom context structure
+    struct my_pcie_device *priv = to_my_pcie_device(dev);
+    int value;
+
+    // 2. Read the internal state variable
+    value = priv->power_feature_enabled;
+
+    // 3. Format the integer value as a string and write it to the buffer.
+    // The kernel will then copy this buffer to user space.
+    return sprintf(buf, "%d\n", value);
+}
+
+/**
+ * power_feature_enabled_store - Write a new state to the feature.
+ * This is executed when user space runs 'echo <value> > /sys/.../power_feature_enabled'.
+ *
+ * @dev: The generic device structure.
+ * @attr: The specific attribute being accessed.
+ * @buf: The buffer containing the string written by the user ("1" or "0").
+ * @count: The length of the input string.
+ *
+ * Returns: The number of bytes consumed (count) or a negative error code.
+ */
+static ssize_t power_feature_enabled_store(struct device *dev,
+                                           struct device_attribute *attr,
+                                           const char *buf, size_t count)
+{
+    struct my_pcie_device *priv = to_my_pcie_device(dev);
+    int value;
+    int ret;
+
+    // 1. Parse the input string (buf) into an integer value
+    ret = kstrtoint(buf, 10, &value);
+    if (ret)
+        return ret; // Return error if parsing fails
+
+    // 2. Validate the input value
+    if (value != 0 && value != 1) {
+        // Log an error and return an error code to the user
+        pr_err("Invalid value for power_feature_enabled: %d. Must be 0 or 1.\n", value);
+        return -EINVAL; // Invalid argument
+    }
+
+    // 3. Update the internal state
+    priv->power_feature_enabled = value;
+
+    // 4. *** CRITICAL STEP: Interact with Hardware ***
+    if (value == 1) {
+        // Call the specific driver function to enable the hardware feature.
+        // This usually involves writing a bit to a Memory-Mapped I/O (MMIO) register.
+        pr_info("PCIe power feature enabled by user.\n");
+        // write_register_bit(priv->regs, POWER_FEATURE_ENABLE_BIT, 1);
+    } else {
+        // Call the specific driver function to disable the hardware feature.
+        pr_info("PCIe power feature disabled by user.\n");
+        // write_register_bit(priv->regs, POWER_FEATURE_ENABLE_BIT, 0);
+    }
+    // 5. Return the number of bytes consumed
+    return count;
+}
+// ====================================================================
+// SECTION 3: Attribute Definition and Linkage
+// ====================================================================
+// Define the Sysfs attribute structure:
+// DEVICE_ATTR_RW creates a struct device_attribute named 'dev_attr_power_feature_enabled'
+// with read access (show) and write access (store).
+//The structure created by the macro is the definition, but it is not live until it is linked to a Kobject. Macro Defines: static struct device_attribute dev_attr_power_feature_enabled; Driver Links: Inside the probe function, the driver passes this structure to the kernel:
+static DEVICE_ATTR_RW(power_feature_enabled);
+// ====================================================================
+// SECTION 4: Driver Initialization and Cleanup
+// ====================================================================
+/**
+ * my_pcie_probe - Function called when the device is found and initialized.
+ */
+
+static int my_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+{
+    struct my_pcie_device *priv;
+    int ret;
+
+    // 1. Allocate and initialize the custom device structure
+    priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+    if (!priv)
+        return -ENOMEM;
+
+    priv->pdev = pdev;
+    // Set default state (e.g., disabled)
+    priv->power_feature_enabled = 0;
+
+    // ... standard driver setup (register allocation, interrupts, etc.) ...
+
+    // 2. *** EXPOSE THE ATTRIBUTE ***
+    // We attach the attribute 'dev_attr_power_feature_enabled' to the device's Kobject.        
+    // pdev->dev is the embedded 'struct device' which contains the Kobject.
+    ret = device_create_file(&pdev->dev, &dev_attr_power_feature_enabled);
+    if (ret) {
+        pr_err("Failed to create sysfs attribute 'power_feature_enabled'.\n");
+        // Cleanup and return error
+        kfree(priv);
+        return ret;
+    }
+
+    pr_info("Sysfs attribute /sys/.../power_feature_enabled created successfully.\n");
+    return 0;
+}
+
+/**
+ * my_pcie_remove - Function called when the device is removed or driver unloaded.
+ */
+static void my_pcie_remove(struct pci_dev *pdev)
+{
+    struct my_pcie_device *priv = pci_get_drvdata(pdev);
+
+    // 1. *** REMOVE THE ATTRIBUTE ***
+    // This cleans up the Sysfs file and deletes it from the /sys hierarchy.
+    device_remove_file(&pdev->dev, &dev_attr_power_feature_enabled);
+
+    pr_info("Sysfs attribute removed and device cleaned up.\n");                                
+
+    // ... standard driver cleanup ...
+    kfree(priv);
+}
+
+// ... driver registration boilerplate ...
