@@ -43,10 +43,8 @@ static ssize_t power_feature_enabled_show(struct device *dev,
     // 1. Get the device's custom context structure
     struct my_pcie_device *priv = to_my_pcie_device(dev);
     int value;
-
     // 2. Read the internal state variable
     value = priv->power_feature_enabled;
-
     // 3. Format the integer value as a string and write it to the buffer.
     // The kernel will then copy this buffer to user space.
     return sprintf(buf, "%d\n", value);
@@ -55,12 +53,10 @@ static ssize_t power_feature_enabled_show(struct device *dev,
 /**
  * power_feature_enabled_store - Write a new state to the feature.
  * This is executed when user space runs 'echo <value> > /sys/.../power_feature_enabled'.
- *
  * @dev: The generic device structure.
  * @attr: The specific attribute being accessed.
  * @buf: The buffer containing the string written by the user ("1" or "0").
  * @count: The length of the input string.
- *
  * Returns: The number of bytes consumed (count) or a negative error code.
  */
 static ssize_t power_feature_enabled_store(struct device *dev,
@@ -70,12 +66,10 @@ static ssize_t power_feature_enabled_store(struct device *dev,
     struct my_pcie_device *priv = to_my_pcie_device(dev);
     int value;
     int ret;
-
     // 1. Parse the input string (buf) into an integer value
     ret = kstrtoint(buf, 10, &value);
     if (ret)
         return ret; // Return error if parsing fails
-
     // 2. Validate the input value
     if (value != 0 && value != 1) {
         // Log an error and return an error code to the user
@@ -85,7 +79,6 @@ static ssize_t power_feature_enabled_store(struct device *dev,
 
     // 3. Update the internal state
     priv->power_feature_enabled = value;
-
     // 4. *** CRITICAL STEP: Interact with Hardware ***
     if (value == 1) {
         // Call the specific driver function to enable the hardware feature.
@@ -152,15 +145,15 @@ static int my_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 static void my_pcie_remove(struct pci_dev *pdev)
 {
     struct my_pcie_device *priv = pci_get_drvdata(pdev);
-
     // 1. *** REMOVE THE ATTRIBUTE ***
     // This cleans up the Sysfs file and deletes it from the /sys hierarchy.
     device_remove_file(&pdev->dev, &dev_attr_power_feature_enabled);
-
     pr_info("Sysfs attribute removed and device cleaned up.\n");                                
-
     // ... standard driver cleanup ...
     kfree(priv);
 }
 
 // ... driver registration boilerplate ...
+/*We create a structure to the device we want to add we define a macro to embedd structures we embedd custom structure in the device structure to inherit from services of the 
+device structure. we create one function to read and one function to write the current state, we define one structure. One function to initialize and one function to clean 
+up memory*/
