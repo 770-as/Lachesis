@@ -35,12 +35,10 @@ static ssize_t polling_rate_ms_show(struct device *dev,
                                     char *buf)
 {
     // 1. Retrieve the driver's private data structure
-    struct my_input_device *priv = to_my_input_device(dev);
+    struct my_input_device *priv = to_my_input_device(dev);//A pointer to the generic kernel device structure. This represents the device object in the /sys hierarchy (e.g., the directory name). It is the only way for the Sysfs subsystem to identify the specific device instance being queried. struct my_input_device *priv: Declares a local pointer variable, priv, which will point to the driver's custom state structure. This structure holds polling_rate_ms.The generic kernel framework only knows about the struct device (dev). This macro (which internally uses container_of) calculates the offset and returns the address of the containing, specialized struct my_input_device that our driver created during initialization. This allows the function to access the driver's unique variables.
     unsigned int rate;
-
     // 2. Read the internal state variable
     rate = priv->polling_rate_ms;
-
     // 3. Format the value as a string and write it to the buffer.
     return sprintf(buf, "%u\n", rate);
 }
@@ -56,22 +54,18 @@ static ssize_t polling_rate_ms_store(struct device *dev,
     struct my_input_device *priv = to_my_input_device(dev);
     unsigned int value;
     int ret;
-
     // 1. Parse the input string into an unsigned integer
     ret = kstrtouint(buf, 10, &value);
     if (ret)
         return ret;
-
     // 2. Validate the input value against typical limits
     // Example: Minimum rate of 1ms, maximum rate of 100ms
     if (value < 1 || value > 100) {
         pr_err("Polling rate %u ms is out of valid range (1-100 ms).\n", value);
         return -EINVAL; // Invalid argument error
     }
-
     // 3. Update the internal state
     priv->polling_rate_ms = value;
-
     // 4. *** CRITICAL STEP: Interact with Hardware ***
     // This function would call the specific hardware register write
     // to configure the device's internal timer to poll at the new rate.
