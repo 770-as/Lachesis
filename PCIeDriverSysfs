@@ -156,4 +156,32 @@ static void my_pcie_remove(struct pci_dev *pdev)
 // ... driver registration boilerplate ...
 /*We create a structure to the device we want to add we define a macro to embedd structures we embedd custom structure in the device structure to inherit from services of the 
 device structure. we create one function to read and one function to write the current state, we define one structure. One function to initialize and one function to clean 
-up memory*/
+up memory.
+The struct pci_dev is the core data structure used by the Linux kernel to represent every single Peripheral Component Interconnect (PCI) or PCIe device found on the system. 
+It contains all the bus-specific details (like vendor IDs, device IDs, bus numbers, configuration space data, etc.).
+Its design relies entirely on structure embedding to inherit generic kernel functionality. 
+
+
+// This is a simplified view of the actual definition in <linux/pci.h>
+struct pci_dev {
+    struct list_head bus_list;    /* Node in the bus list */
+
+    struct device dev;            /* <-- THE EMBEDDED GENERIC DEVICE */
+                                  /* All generic device fields are here */
+    unsigned int devfn;           /* Device number and function number */
+    unsigned short vendor;        /* Vendor ID */
+    unsigned short device;        /* Device ID */
+    /* ... hundreds of other PCI-specific fields ... */
+};
+
+When a kernel function is called, such as device_create_file(), it doesn't care if the device is PCI, USB, or I2C; it only cares about the generic device features, which start with the 
+struct kobject. By passing &pdev->dev, we are passing the address of the embedded struct device member, which contains the Kobject that the kernel uses to attach the Sysfs file.
+In the Sysfs example, we used a helper macro that is a specialized version of container_of:
+// Helper macro defined in the Sysfs example:
+#define to_my_pcie_device(d) container_of(d, struct my_pcie_device, pdev->dev)
+The pointer passed to this macro is a generic struct device *dev. The macro uses the memory offsets of struct my_pcie_device to correctly find the base address of the specialized 
+structure, allowing the show and store functions to access the power_feature_enabled field.
+
+The DEVICE_ATTR_RW macro is the tool used at compile-time to package the read/write logic into a static structure. The device_create_file function is the API call used at run-time to 
+register that structure with the kernel. The container_of mechanism is the engine used at run-time inside the show/store functions to find your private data.
+*/
