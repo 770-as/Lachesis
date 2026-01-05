@@ -1,0 +1,78 @@
+To build a Process Monitor, you move away from "active" hooking and into "Passive Notification." This is the modern, stable way to monitor Windows activity.
+To achieve this, you primarily need two functions: one to register your interest in process events, and a callback function that you design to handle those events.
+PsSetCreateProcessNotifyRoutineEx  This is the "Installation" function. You call this in your DriverEntry.
+Why the "Ex" version? The original PsSetCreateProcessNotifyRoutine only told you a process started. The Ex version provides a PS_CREATE_NOTIFY_INFO structure, which contains the Command Line (e.g., C:\Windows\System32\cmd.exe /c start), 
+the Image File Name, and the ability to Block the process.
+The "Remove" Logic: When you call PsSetCreateProcessNotifyRoutineEx with TRUE as the second parameter, it searches for your function in the kernel's list and removes it.
+Safe Printing: Use %wZ in DbgPrint to print the PUNICODE_STRING found in CreateInfo->ImageFileName
+
+
+
+#include <ntddk.h>
+//PS_CREATE_NOTIFY_INFO: The structure that holds the process name and "Block" status.
+// This is your custom function that Windows will call
+void MyProcessCallback(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIFY_INFO CreateInfo) {
+    if (CreateInfo != NULL) {
+        // A process is being CREATED
+        DbgPrint("Process Created: PID=%d, Path=%wZ\n", (ULONG)(ULONG_PTR)ProcessId, CreateInfo->ImageFileName);
+        // OPTIONAL: To block a process (e.g., notepad), set Status to Access Denied
+        // CreateInfo->CreationStatus = STATUS_ACCESS_DENIED;
+    } else {
+        // A process is being EXITED
+        DbgPrint("Process Exited: PID=%d\n", (ULONG)(ULONG_PTR)ProcessId);
+    }
+}
+void UnloadDriver(PDRIVER_OBJECT DriverObject) {
+    // CRITICAL: You MUST unregister the routine, or the system will BSOD on next process start
+    PsSetCreateProcessNotifyRoutineEx(MyProcessCallback, TRUE); 
+    DbgPrint("Process Monitor Unloaded.\n");
+}
+NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
+    DriverObject->DriverUnload = UnloadDriver;
+    // Register the callback (FALSE means "installing")
+    NTSTATUS status = PsSetCreateProcessNotifyRoutineEx(MyProcessCallback, FALSE);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("Failed to register notify routine: 0x%x\n", status);
+    }
+    return status;
+}
+
+
+
+
+
+
+void MyProcessCallback(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIFY_INFO CreateInfo) {
+    if (CreateInfo != NULL) {
+        // 1. Define the name we are looking for
+        // Note: Kernel strings often use the Full Device Path
+        DECLARE_CONST_UNICODE_STRING(TargetProcess, L"\\Device\\HarddiskVolume3\\Windows\\System32\\cmd.exe");
+
+        // 2. Compare the starting process name with our target
+        // The 'TRUE' parameter makes it case-insensitive
+        if (RtlCompareUnicodeString(CreateInfo->ImageFileName, &TargetProcess, TRUE) == 0) {
+            
+            DbgPrint("!!! ALERT: Target Process Detected: %wZ (PID: %d) !!!\n", 
+                     CreateInfo->ImageFileName, (ULONG)(ULONG_PTR)ProcessId);
+
+            // 3. Optional: Block it
+            // CreateInfo->CreationStatus = STATUS_ACCESS_DENIED;
+        }
+    }
+}
+DECLARE_CONST_UNICODE_STRING(ProcessSuffix, L"\\cmd.exe");
+if (RtlSuffixUnicodeString(&ProcessSuffix, CreateInfo->ImageFileName, TRUE)) {
+    DbgPrint("A Command Prompt attempt was detected!\n");
+}
+
+
+
+
+
+
+
+
+
+
+
+
