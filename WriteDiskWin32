@@ -1,0 +1,120 @@
+How to translate logic to physical place on the disk ? 
+Logical cluster number is a unit of clusters, cluster contains 4 096 bits, 
+. When you call GetDiskFreeSpaceW, Windows doesn't guess these numbers; it actually reads the Boot Sector (the very first sector) of the partition. That sector contains a structure called the BPB (BIOS Parameter Block) which stores exactly how the drive was formatted.
+When the function execution reaches the kernel level:
+The File System Driver (NTFS.sys) looks at the drive's metadata. It pulls the specific hardware-defined values for that partition. It fills your variables (&sectorsPerCluster, etc.) with those values.
+all GetDiskFreeSpaceW to get sectorsPerCluster and bytesPerSector.
+Calculate: $BytesPerCluster = sectorsPerCluster \times bytesPerSector$.
+LCN stands for Logical Cluster Number. Think of your hard drive as a giant parking lot divided into equal-sized spaces (Clusters).
+BytesPerCluster is the size of each parking space (e.g., 4,096 bytes). LCN is the address/index of a specific parking space (e.g., "Space #500").
+If you want to find your car, you don't just need to know how big the space is; you need the number of the space. That number is the LCN.
+to get the LCN:
+Method A: Reading the MFT (The "Everything" way)
+When you scan the MFT records (those 1,024-byte blocks), you look for the $DATA attribute (Type 0x80). Inside that attribute, there is a field called a Data Run. The Data Run explicitly lists the LCNs.
+Example: A Data Run might say: "This file starts at LCN 55,000 and is 10 clusters long." Method B: Using a Win32 API (The "Surgical" way)
+If you already have a handle to a specific file and you want to know its physical LCN without scanning the whole MFT, you use the control code we discussed: FSCTL_GET_RETRIEVAL_POINTERS.
+The structure it returns (RETRIEVAL_POINTERS_BUFFER) contains an array of Extents, and each extent has a Lcn member.
+Imagine you are looking for secret.txt:You scan the MFT and find the record for secret.txt.Inside that record, the Data Run tells you: "The data is at LCN 1000".You called GetDiskFreeSpace and it told you: "BytesPerCluster is 4096". 
+Your function calculates: $1000 \times 4096 = 4,096,000$.You move your "disk pointer" to byte 4,096,000 and start reading. You have just bypassed the Windows File System.
+דיסקים היום הם בנפחים של טרה-בייט. מספר הבית (Byte Offset) יהיה מספר עצום שיעבור את ה-4GB בקלות. מה לעשות: השתמש בטיפוס הנתונים LARGE_INTEGER או unsigned __int64.
+
+
+
+
+
+
+
+
+
+
+
+#include <windows.h>
+
+/**
+ * המטרה: להמיר מספר קלאסטר (LCN) למיקום מדויק בבתים
+ * @param lcn - מספר הקלאסטר מה-MFT או מה-Data Run
+ * @param bytesPerCluster - נתון שקיבלת מה-Volume Data
+ * @return LARGE_INTEGER - המיקום המדויק לשימוש ב-SetFilePointerEx
+ */
+LARGE_INTEGER LcnToPhysicalOffset(LONGLONG lcn, DWORD bytesPerCluster) {
+    LARGE_INTEGER physicalOffset;
+
+    // Input: The LCN you want to visit
+  // Input: The BytesPerCluster you just calculated
+  // Output: The exact byte address on the HDD
+LARGE_INTEGER CalculatePhysicalOffset(LONGLONG lcn, DWORD bytesPerCluster) {
+    LARGE_INTEGER offset;
+    
+    // The "Magic" math:
+    // Physical Byte = Cluster Number * Size of each Cluster
+    offset.QuadPart = lcn * (LONGLONG)bytesPerCluster;
+    
+    return offset;
+}
+    return physicalOffset;
+}
+
+
+
+
+
+
+
+
+
+BOOL GetDiskFreeSpaceW(
+  LPCWSTR lpRootPathName,          // נתיב לשורש הכונן (למשל L"C:\\")
+  LPDWORD lpSectorsPerCluster,     // כתובת למשתנה שיקבל את מספר הסקטורים בקלאסטר
+  LPDWORD lpBytesPerSector,        // כתובת למשתנה שיקבל את מספר הבתים בסקטור
+  LPDWORD lpNumberOfFreeClusters,  // כתובת למשתנה שיקבל את מספר הקלאסטרים החופשיים
+  LPDWORD lpTotalNumberOfClusters  // כתובת למשתנה שיקבל את סך כל הקלאסטרים בכונן
+);
+
+
+
+DWORD sectorsPerCluster;
+DWORD bytesPerSector;
+DWORD freeClusters;
+DWORD totalClusters;
+
+// קריאה לפונקציה עבור כונן C
+if (GetDiskFreeSpaceW(L"C:\\", &sectorsPerCluster, &bytesPerSector, &freeClusters, &totalClusters)) {
+    
+    // זה הנתון שאתה צריך עבור פונקציית ההמרה שלך
+    DWORD bytesPerCluster = sectorsPerCluster * bytesPerSector;
+    
+    std::cout << "Bytes per Cluster: " << bytesPerCluster << std::endl;
+} else {
+    std::cerr << "Error: " << GetLastError() << std::endl;
+}
+
+
+
+
+
+BOOL GetDiskFreeSpaceA(
+  LPCSTR  lpRootPathName,           // גרסת ANSI (char*)
+  LPDWORD lpSectorsPerCluster,
+  LPDWORD lpBytesPerSector,
+  LPDWORD lpNumberOfFreeClusters,
+  LPDWORD lpTotalNumberOfClusters
+);
+
+BOOL GetDiskFreeSpaceW(
+  LPCWSTR lpRootPathName,          // גרסת Unicode (wchar_t*)
+  LPDWORD lpSectorsPerCluster,
+  LPDWORD lpBytesPerSector,
+  LPDWORD lpNumberOfFreeClusters,
+  LPDWORD lpTotalNumberOfClusters
+);
+
+DWORD sectorsPerCluster, bytesPerSector, freeClusters, totalClusters;
+
+if (GetDiskFreeSpaceW(L"C:\\", &sectorsPerCluster, &bytesPerSector, &freeClusters, &totalClusters)) {
+    // החישוב הקריטי שלך להמרה מ-LCN לבתים:
+    unsigned __int64 bytesPerCluster = (unsigned __int64)sectorsPerCluster * bytesPerSector;
+    
+    // עכשיו אתה יכול להמשיך לחישוב ה-Physical Offset
+}
+
+
