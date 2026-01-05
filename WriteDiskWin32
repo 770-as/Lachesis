@@ -17,10 +17,56 @@ The structure it returns (RETRIEVAL_POINTERS_BUFFER) contains an array of Extent
 Imagine you are looking for secret.txt:You scan the MFT and find the record for secret.txt.Inside that record, the Data Run tells you: "The data is at LCN 1000".You called GetDiskFreeSpace and it told you: "BytesPerCluster is 4096". 
 Your function calculates: $1000 \times 4096 = 4,096,000$.You move your "disk pointer" to byte 4,096,000 and start reading. You have just bypassed the Windows File System.
 דיסקים היום הם בנפחים של טרה-בייט. מספר הבית (Byte Offset) יהיה מספר עצום שיעבור את ה-4GB בקלות. מה לעשות: השתמש בטיפוס הנתונים LARGE_INTEGER או unsigned __int64.
+שים לב שכל הפרמטרים של המספרים הם LPDWORD (כלומר מצביעים ל-32 סיביות). המשמעות היא שהערך המקסימלי שהם יכולים להכיל הוא $2^{32}-1$.בכוננים של היום (מעל 2TB), מספר הקלאסטרים הכולל עוקף את המספר הזה בקלות.הבשורה הטובה: עבור המטרה שלך (חישוב BytesPerCluster), הפונקציה הזו עדיין מעולה כי היחס בין סקטורים לקלאסטרים הוא קטן ותמיד ייכנס ב-DWORD.הבשורה הפחות טובה: אל תסתמך על הנתונים של "שטח פנוי" מהפונקציה הזו אם הכונן גדול. 
+No main: Windows specifically looks for the name DriverEntry.
+NTSTATUS: This is the standard "Success/Failure" type for the kernel. Unlike int, it has thousands of specific codes (e.g., STATUS_DEVICE_NOT_READY).
+UNREFERENCED_PARAMETER: Kernel compilers are set to "Treat Warnings as Errors." If you don't use a variable Windows gives you (like RegistryPath), the code won't compile unless you use this macro.
+The "Cleanup" Pointer: Notice DriverObject->DriverUnload = UnloadDriver;. This is how you "register" your exit function. If you forget this line, you cannot stop the driver without rebooting.
+You cannot use a standard "Console App" template. You must have the WDK (Windows Driver Kit) installed.you use the Service Control Manager via the Command Prompt (as Admin):
+Create the Service: sc create MyHelloDriver type= kernel binPath= C:\path\to\your\driver.sys
+Start it: sc start MyHelloDriver <-- At this moment, "Hello from the Kernel!" appears in DebugView.
+Stop it: sc stop MyHelloDriver <-- At this moment, "Goodbye!" appears in DebugView.
+Delete it: sc delete MyHelloDriver
+File > New > Project.
+Search for Empty WDM Driver or Kernel Mode Driver, Empty (KMDF).
+Add a new file named main.c.
+Crucial Setting: * Right-click Project > Properties.
+Driver Settings > Target OS Version: Set this to "Windows 10 or later".
+Inf2Cat: Set "Use Local Time" to Yes (to avoid timestamp errors).
+Build the project. You will get a .sys file instead of an .exe.
+This is the "Main" of the driver world. When you tell Windows to "Start" your driver (using a command like sc start), the OS looks for this specific function to begin execution.
+Purpose: To initialize global variables, create "Device Objects" (so user apps can talk to the driver), and set up the "Unload" routine.
+Return Value: It returns an NTSTATUS. If it returns STATUS_SUCCESS, the driver stays loaded. If it returns an error, Windows immediately kicks the driver out of memory.
+In Win32 apps, when you close the program, Windows cleans up the memory. In the kernel, Windows does not do this for you.
+Purpose: If you don't provide an Unload routine, your driver can never be stopped without restarting the computer.
+Responsibility: It must delete any device objects created, free any memory you allocated (ExFreePool), and "unhook" any system functions. If you forget to free something here, it results in a Kernel Memory Leak, 
+which slows down the entire PC.
+DbgPrint (The Kernel's "printf")
+This is the function you use to write to the Debug Log mentioned above. Syntax: It works exactly like printf. You can use format specifiers like %d, %s, and %p.
+Safety: Unlike many kernel functions, DbgPrint is generally safe to call from almost anywhere in your code.
+Standard usage: DbgPrint("MyDriver: Keyboard hook successfully installed at address %p\n", HookAddress);
 
 
+#include <ntddk.h> // The core header for all Kernel drivers
 
+// This is the Unload routine. It runs when you stop the driver.
+void UnloadDriver(PDRIVER_OBJECT DriverObject) {
+    UNREFERENCED_PARAMETER(DriverObject); // Tells the compiler we aren't using this
+    DbgPrint("HelloDriver: Unload routine called. Goodbye!\n");
+}
 
+// This is the Entry Point. It runs when you start the driver.
+NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
+    UNREFERENCED_PARAMETER(RegistryPath);
+
+    DbgPrint("HelloDriver: DriverEntry called. Hello from the Kernel!\n");
+
+    // We MUST tell Windows which function handles the cleanup
+    DriverObject->DriverUnload = UnloadDriver;
+
+    // STATUS_SUCCESS (0) tells Windows the driver loaded correctly
+    return STATUS_SUCCESS;
+}
 
 
 
