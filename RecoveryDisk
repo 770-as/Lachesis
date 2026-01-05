@@ -1,0 +1,64 @@
+The Goal of the Project: "SmartSector Recov"
+Your tool will:
+Open the raw volume bypassing the file system.
+Navigate to a specific offset (calculated via the LCN math we did).
+Attempt a "Raw Read" of a specific sector.
+Handle Errors: If the sector is damaged, the tool won't crash; it will log the bad sector and move to the next one.
+Why FILE_FLAG_NO_BUFFERING? > Usually, Windows "helps" you by reading extra data into RAM. In recovery, if there is one bad sector, the cache will try to read the whole block and fail. This flag forces Windows 
+to read only exactly what you asked for, directly from the disk.
+When a sector is damaged, the disk's internal firmware tries to re-read it many times. We can write a loop that tries to read the data, and if it fails, we "skip" the bad part to save the rest of the file.
+Alignment: Since we used FILE_FLAG_NO_BUFFERING, your physicalOffset must be a multiple of the sector size (usually 512). If you try to read from byte 513, the function will fail instantly.
+
+Error 23 (ERROR_CRC): This is the "Holy Grail" of disk recovery. It means the hardware tried its best but the data is corrupted. A good recovery tool will fill that part of the file with zeros and keep going to save the rest of the user's data.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#include <windows.h>
+#include <iostream>
+HANDLE hDisk = CreateFileW(
+    L"\\\\.\\C:",                // The Physical/Logical Drive
+    GENERIC_READ,                // We only need to read for recovery
+    FILE_SHARE_READ | FILE_SHARE_WRITE, // MUST share to avoid "In Use" errors
+    NULL, 
+    OPEN_EXISTING, 
+    FILE_FLAG_NO_BUFFERING,      // CRITICAL: Bypasses Windows RAM cache
+    NULL
+);
+
+bool RecoverSector(HANDLE hDisk, LARGE_INTEGER physicalOffset, BYTE* outBuffer) {
+    // 1. Use SetFilePointerEx to move to the physicalOffset.
+    // 2. Use ReadFile to try and read 512 bytes into outBuffer.
+    // 3. If ReadFile returns FALSE:
+    //    - Call GetLastError(). 
+    //    - If error is ERROR_CRC (23), the sector is physically damaged.
+    // 4. Return true if success, false if the sector is dead.
+    
+    return false; // Placeholder
+}
+
+
+
+
+
+
+
+
+
+
+
+
