@@ -1,0 +1,4 @@
+macro called DECLARE_CONST_UNICODE_STRING. This does two things: it creates the string and fills it with your text at compile time.
+To find your specific volume path, you can use the WinObj tool from Sysinternals or use the QueryDosDevice API, but for a driver developer, the easiest way is to look 
+at your kernel logs using DbgPrint.
+Since you have your callback running, you can simply print the name of every process that starts. Your DbgPrint will show you exactly how the kernel sees your hard drive.
