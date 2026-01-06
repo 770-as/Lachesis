@@ -1,0 +1,59 @@
+//macro called DECLARE_CONST_UNICODE_STRING. This does two things: it creates the string and fills it with your text at compile time.
+ParentProcessId (The "ID Number")
+What it is: A HANDLE (which is just a numeric value, e.g., 4528) that uniquely identifies a process across the whole system at a specific moment in time.
+Source: In your CreateInfo structure, this is just a "label" the kernel gives you so you know who the parent is.
+Nature: It is volatile. Once a process closes, its ID can be recycled and given to a brand-new process.
+Usage: You use it as a "search key" to find the actual process object.
+PEPROCESS (The "Actual Object")
+What it is: A pointer to an EPROCESS (Executive Process) structure. This is the "source of truth." It is a massive block of memory where the kernel stores
+everything about a process: its threads, its memory maps, its security token, and its name.
+Nature: It is a Kernel Object. As long as you have a "reference" to it (using PsLookupProcessByProcessId), the kernel will not let that memory disappear, 
+even if the process exits. Usage: You need this object if you want to perform real actions, like getting the image name (e.g., explorer.exe) or checking 
+security rights.
+f you want to know if that parent is explorer.exe, you can't just look at the number 1234. You have to:
+Take the ID (1234).
+Ask the Kernel: "Can you give me the PEPROCESS object for ID 1234?" (using PsLookupProcessByProcessId).
+Inspect the Object: Now that you have the "person" (the object), you can look at their "name tag" (the Image Name).
+Because PEPROCESS is an actual object in memory, you must release it when you are done. If you don't, the process will stay "half-alive" in memory forever 
+(a memory leak). You release it using: ObDereferenceObject(ProcessPointer);
+
+NTKERNELAPI PSTR PsGetProcessImageFileName(PEPROCESS Process);//declaration of the function because it is not in the standard headers
+PsSetCreateProcessNotifyRoutineEx
+PS_CREATE_NOTIFY_INFO {
+  size_t size;
+  flags;
+  parentProcessId;
+  CreatingThreadId;
+  FileObject;
+  ImageFileName;
+  Command;
+  CreationStatus;
+}
+
+CreateInfo->ImageFileName
+CreateInfo->CreationStatus
+void ProcessCallback (PeProcess process, HANDLE process_id, PPS_CREATE_NOTIFY_INFO CreateInfo) {
+  //check if create_info is empty
+  if (CreateInfo!=NULL) {
+    DECLARE_CONST_UNICODE_STRING(TargetProcess, L"\\Device\\HarddiskVolume3\\Windows\\System32\\cmd.exe");
+    DbgPrint("Process Path: %wZ\n", CreateInfo->ImageFileName);
+    PsGetProcessImageFileName: This is a very useful "undocumented" function. You might need to declare it at the top of your file because it isn't always in 
+    the standard headers: NTKERNELAPI PSTR PsGetProcessImageFileName(PEPROCESS Process);
+    String Format: Note that PsGetProcessImageFileName returns a PSTR (a standard char* string), not a UNICODE_STRING. This is why we use %s in DbgPrint 
+    and strcmp for comparisons, rather than the Unicode versions.
+    The Reference Count: When you call PsLookupProcessByProcessId, the kernel adds +1 to the process's reference count. If you forget ObDereferenceObject, 
+    the count stays at 1 forever, and the process can never be fully deleted from memory, even if the user closes it.
+    NTSTATUS status;  
+    PEPROCESS ParentProcess = NULL;
+    status = PsLookupProcessByProcessId(CreateInfo->ParentProcessId, &ParentProcess);//that address stores the pointer to the process in the case the function succeded
+    
+}
+}
+void ProcessCallback (PeProcess process, HANDLE process_id, PPS_CREATE_NOTIFY_INFO CreateInfo) {
+  if (CreateInfo!=NULL) {
+    DbgPrint("Process Path: %wZ\n", CreateInfo->ImageFileName);
+    NTSTATUS status;
+    PEPROCESS ParentProcess= NULL;
+    status=PsLookupProcessByProcessId(CreateInfo->ParentProcessId, &ParentProcess);
+  }
+}
